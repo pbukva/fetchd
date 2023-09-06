@@ -57,6 +57,8 @@ def main():
         genesis = json.load(f)
         genesis["app_state"]["staking"]["params"]["max_validators"] = 10
         genesis["app_state"]["staking"]["params"]["max_entries"] = 10
+        genesis["app_state"]["gov"]["voting_params"]["voting_period"] = "180s"
+        genesis["app_state"]["gov"]["deposit_params"]["max_deposit_period"] = "180s"
         f.seek(0)
         json.dump(genesis, f, indent=4)
         f.truncate()
@@ -70,8 +72,12 @@ def main():
 
     for validator in validators:
         cmd = ['fetchd', 'add-genesis-account',
-               validator, '200000000000000000000atestfet']
+               validator, f'200000000000000000000atestfet']
         subprocess.check_call(cmd)
+
+    cmd = ['fetchd', 'add-genesis-account',
+           'fetch12w7ud5hv93zu82as4d64tn00pc596ue2fs74tj', f'200000000000000000000atestfet,{10**18}nanomobx']
+    subprocess.check_call(cmd)
 
     # copy the generated genesis file
     shutil.copy(GENESIS_PATH, '/setup/genesis.intermediate.json')

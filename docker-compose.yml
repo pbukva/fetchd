@@ -12,7 +12,7 @@ services:
       CHAINID: localnet
 
     volumes:
-      - "setup-data:/setup"
+      - "../upgrade-test/setup-data:/setup"
 
     # networks:
     #   localnet:
@@ -32,8 +32,8 @@ services:
       PASSPHRASE: change-me-please
 
     volumes:
-      - "setup-data:/setup"
-      - "node0-data:/root/.fetchd"
+      - "../upgrade-test/setup-data:/setup"
+      - "../upgrade-test/node0-data:/root/.fetchd"
 
     # networks:
     #   localnet:
@@ -53,8 +53,8 @@ services:
       PASSPHRASE: change-me-please
 
     volumes:
-      - "setup-data:/setup"
-      - "node1-data:/root/.fetchd"
+      - "../upgrade-test/setup-data:/setup"
+      - "../upgrade-test/node1-data:/root/.fetchd"
 
     # networks:
     #   localnet:
@@ -77,8 +77,8 @@ services:
       - "node0"
 
     volumes:
-      - "setup-data:/setup"
-      - "node2-data:/root/.fetchd"
+      - "../upgrade-test/setup-data:/setup"
+      - "../upgrade-test/node2-data:/root/.fetchd"
 
     # networks:
     #   localnet:
