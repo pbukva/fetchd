@@ -16,9 +16,10 @@ jobs:
           docker login --username ${{ secrets.DOCKER_USERNAME }} --password ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build and Publish Public Images
-        uses: ejfitzgerald/action-docker-tag@v0.2.0-alpha2
+        uses: pbukva/action-docker-tag@v0.2.1-alpha0
         with:
           repo: fetchai/fetchd
+          platforms: linux/amd64,linux/arm64
           target: hub
 
       - name: Setup GCloud
@@ -31,7 +32,8 @@ jobs:
           gcloud auth configure-docker
 
       - name: Build and Publish Private Images
-        uses: ejfitzgerald/action-docker-tag@v0.2.0-alpha2
+        uses: pbukva/action-docker-tag@v0.2.1-alpha0
         with:
           repo: gcr.io/fetch-ai-images/fetchd
+          platforms: linux/amd64,linux/arm64
           target: gcr
