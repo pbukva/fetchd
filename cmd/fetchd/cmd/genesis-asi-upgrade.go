@@ -40,6 +40,8 @@ const (
 
 	NewAddrPrefix = "asi"
 	OldAddrPrefix = "fetch"
+
+	ModuleAccountType = "/cosmos.auth.v1beta1.ModuleAccount"
 )
 
 var (
@@ -758,7 +760,6 @@ func ASIGenesisUpgradeWithdrawIBCChannelsBalances(jsonData map[string]interface{
 }
 
 func getGenesisAccountSequenceMap(accounts []interface{}) *map[string]int {
-	const ModuleAccount = "/cosmos.auth.v1beta1.ModuleAccount"
 	accountMap := make(map[string]int)
 
 	for _, acc := range accounts {
@@ -766,7 +767,7 @@ func getGenesisAccountSequenceMap(accounts []interface{}) *map[string]int {
 		accType := accMap["@type"]
 
 		accData := acc
-		if accType == ModuleAccount {
+		if accType == ModuleAccountType {
 			accData = accMap["base_account"]
 		}
 
@@ -782,6 +783,45 @@ func getGenesisAccountSequenceMap(accounts []interface{}) *map[string]int {
 	}
 
 	return &accountMap
+}
+
+func createAccountIfNecessary(address string, appData map[string]interface{}, accountsIndexMap map[string]int, networkInfo NetworkConfig, manifest *ASIUpgradeManifest) int {
+	auth := appData["auth"].(map[string]interface{})
+	accounts := auth["accounts"].([]interface{})
+
+	if MaxAccountNumber == 0 {
+		for _, account := range accounts {
+			num, err := strconv.Atoi(account.(map[string]interface{})["account_number"].(string))
+			if err != nil {
+				panic(err)
+			}
+			if num > MaxAccountNumber {
+				MaxAccountNumber = num
+			}
+		}
+	}
+
+	//TODO(JS): This needs to be in the case that the account doesn't exist, instead of just balance as it is at the moment
+	MaxAccountNumber++
+
+	reconciliationAccount := map[string]interface{}{
+		"@type":          "/cosmos.auth.v1beta1.BaseAccount",
+		"account_number": MaxAccountNumber,
+		"address":        address,
+		"pub_key":        nil,
+		"sequence":       "0",
+	}
+
+	accounts = append(accounts, reconciliationAccount)
+	auth["accounts"] = accounts
+
+	balances = append(balances, reconciliationBalance)
+	bank["balances"] = balances
+
+	reconciliationBalanceIdx = len(balances) - 1
+	balanceMap[address] = reconciliationBalanceIdx
+	}
+	return reconciliationBalanceIdx
 }
 
 func getBalanceIdx(address string, appData map[string]interface{}, balanceMap map[string]int, networkInfo NetworkConfig) int {
@@ -1104,4 +1144,168 @@ type FccIssuance struct {
 
 type Reconciliation struct {
 	Addr string
+}
+
+type GenesisArrayContainer struct {
+	Array []interface{}
+	AddressKey string
+	AddressToArrayIndexMap map[string]int
+	GenesisParent map[string]interface{}
+	GenesisKey string
+}
+
+func NewGenesisArrayContainer(genesisParent map[string]interface{}, addressKey string, genesisKey string) *GenesisArrayContainer {
+	c := GenesisArrayContainer{
+		Array: genesisParent[genesisKey].([]interface{}),
+		AddressKey: addressKey,
+		AddressToArrayIndexMap: map[string]int{},
+		GenesisParent: genesisParent,
+		GenesisKey: genesisKey,
+	}
+
+	for idx, val := range c.Array {
+		address :=  val.(map[string]interface{})[c.AddressKey].(string)
+		c.AddressToArrayIndexMap[address] = idx
+	}
+
+	return &c
+}
+
+
+type IGenesisArrayContainer interface {
+	GetArray() []interface{}
+	SetArray(array []interface{})
+	GetItemKey(item interface{}) string
+	AddItem(item interface{})
+	GetKeyToArrayIdxMap() IndexMap
+}
+
+type IndexMap map[string]int
+
+func GenesisArrayToIdxMap(genesisContainer IGenesisArrayContainer) IndexMap {
+	m := IndexMap{}
+	for idx, val := range genesisContainer.GetArray() {
+		key :=  genesisContainer.GetItemKey(val)
+		m[key] = idx
+	}
+
+	return m
+}
+func GenesisArrayAddItem(c IGenesisArrayContainer, item interface{}) (key string, added bool) {
+	key = c.GetItemKey(item)
+	arr := c.GetArray()
+	m := c.GetKeyToArrayIdxMap()
+
+	idx, added := m[key]
+	if added {
+		arr[idx] = item
+	} else {
+		arr = append(arr, item)
+		m[key] = len(arr)-1
+	}
+
+	c.SetArray(arr)
+
+	return key, added
+}
+
+type Balances struct {
+	//Array []interface{}
+	ArrayIndexMap IndexMap
+	GenesisAppState map[string]interface{}
+}
+func (b *Balances) GetArray() []interface{} {
+	return b.GenesisAppState[banktypes.ModuleName].(map[string]interface{})["balances"].([]interface{})
+}
+func (b *Balances) SetArray(array []interface{}) {
+	b.GenesisAppState[banktypes.ModuleName].(map[string]interface{})["balances"] = array
+}
+func (*Balances) GetItemKey(item interface{}) string {
+	return item.(map[string]interface{})["address"].(string)
+}
+func (b *Balances) AddItem(item interface{}) {
+	GenesisArrayAddItem(b, item)
+}
+func (b *Balances) GetKeyToArrayIdxMap() IndexMap {
+	return b.ArrayIndexMap
+}
+func NewBalances(appState map[string]interface{}) *Balances {
+	balances := Balances{
+		GenesisAppState: appState,
+	}
+
+	balances.ArrayIndexMap = GenesisArrayToIdxMap(&balances)
+
+	return &balances
+}
+
+
+type Accounts struct {
+	NextAccountNumber uint64
+	ArrayIndexMap IndexMap
+	SequenceMap IndexMap
+	GenesisAppState map[string]interface{}
+}
+func (b *Accounts) GetArray() []interface{} {
+	return b.GenesisAppState[authtypes.ModuleName].(map[string]interface{})["accounts"].([]interface{})
+}
+func (b *Accounts) SetArray(array []interface{}) {
+	b.GenesisAppState[authtypes.ModuleName].(map[string]interface{})["accounts"] = array
+}
+func (b *Accounts) GetItemKey(item interface{}) string {
+	baseAccount := item.(map[string]interface{})
+	if baseAccount["@type"].(string) == ModuleAccountType {
+		baseAccount = baseAccount["base_account"].(map[string]interface{})
+	}
+	return baseAccount["address"].(string)
+}
+func (b *Accounts) AddItem(item interface{}) {
+	key, added := GenesisArrayAddItem(b, item)
+	_, accSeq := b.GetItemAccNumAndSequence(item)
+
+	b.SequenceMap[key] = int(accSeq)
+
+	if added {
+		b.NextAccountNumber += 1
+	}
+}
+func (b *Accounts) GetItemAccNumAndSequence(item interface{}) /*(string, string)*/ (uint64, uint64) {
+	baseAccount := item.(map[string]interface{})
+	if baseAccount["@type"].(string) == ModuleAccountType {
+		baseAccount = baseAccount["base_account"].(map[string]interface{})
+	}
+	accNumStr := baseAccount["account_number"].(string)
+	accNum, err := strconv.ParseUint(accNumStr, 10, 64)
+	if err != nil {
+		panic(err)
+	}
+	accSeqStr := baseAccount["sequence"].(string)
+	accSeq, err := strconv.ParseUint(accSeqStr, 10, 64)
+	if err != nil {
+		panic(err)
+	}
+	return accNum, accSeq
+}
+func (b *Accounts) GetKeyToArrayIdxMap() IndexMap {
+	return b.ArrayIndexMap
+}
+func NewAccounts(appState map[string]interface{}) *Accounts {
+	accounts := Accounts{
+		GenesisAppState: appState,
+	}
+
+	accounts.ArrayIndexMap = GenesisArrayToIdxMap(&accounts)
+
+	maxAccNum := uint64(0)
+	accountsArr := accounts.GetArray()
+	for _, account := range accountsArr {
+		accNum, accSeq := accounts.GetItemAccNumAndSequence(account)
+		if accNum > maxAccNum {
+			maxAccNum = accNum
+		}
+		accounts.SequenceMap[accounts.GetItemKey(account)] = int(accSeq)
+	}
+	accounts.NextAccountNumber = maxAccNum + 1
+
+	return &accounts
 }
