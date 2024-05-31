@@ -17,7 +17,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	"github.com/cosmos/cosmos-sdk/x/genutil"
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
 	ibctransfertypes "github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 	ibccore "github.com/cosmos/ibc-go/v3/modules/core/24-host"
@@ -65,6 +64,7 @@ var (
 	balanceKey          = prefixStringWithLength("balance")
 )
 
+var MaxAccountNumber = 0
 //go:embed reconciliation_data.csv
 var reconciliationData []byte
 
@@ -247,13 +247,15 @@ func ASIGenesisUpgradeCmd(defaultNodeHome string) *cobra.Command {
 				return err
 			}
 
-			var encodedAppState []byte
-			if encodedAppState, err = json.Marshal(jsonData); err != nil {
-				return err
-			}
+			return nil
 
-			genDoc.AppState = encodedAppState
-			return genutil.ExportGenesisFile(genDoc, genFile)
+			//var encodedAppState []byte
+			//if encodedAppState, err = json.Marshal(jsonData); err != nil {
+			//	return err
+			//}
+			//
+			//genDoc.AppState = encodedAppState
+			//return genutil.ExportGenesisFile(genDoc, genFile)
 		},
 	}
 
@@ -715,10 +717,7 @@ func ASIGenesisUpgradeWithdrawIBCChannelsBalances(jsonData map[string]interface{
 		Transfer: []ASIUpgradeTransfer{},
 		To:       ibcWithdrawalAddress,
 	}
-	withdrawalBalanceIdx, ok := (*balanceMap)[ibcWithdrawalAddress]
-	if !ok {
-		panic("failed to find ibc withdrawal address in genesis balances")
-	}
+	withdrawalBalanceIdx := getBalanceIdx(ibcWithdrawalAddress, jsonData, *balanceMap, networkInfo)
 
 	ibc := jsonData[ibccore.ModuleName].(map[string]interface{})
 	channelGenesis := ibc["channel_genesis"].(map[string]interface{})
@@ -785,6 +784,58 @@ func getGenesisAccountSequenceMap(accounts []interface{}) *map[string]int {
 	return &accountMap
 }
 
+func getBalanceIdx(address string, appData map[string]interface{}, balanceMap map[string]int, networkInfo NetworkConfig) int {
+	auth := appData["auth"].(map[string]interface{})
+	bank := appData["bank"].(map[string]interface{})
+	balances := bank["balances"].([]interface{})
+	accounts := auth["accounts"].([]interface{})
+
+	reconciliationBalanceIdx, ok := (balanceMap)[address]
+	if !ok {
+		reconciliationBalance := map[string]interface{}{
+			"address": address,
+			"coins": []interface{}{
+				map[string]interface{}{
+					"amount": "0",
+					"denom":  networkInfo.DenomInfo.OldDenom,
+				}},
+		}
+
+		if MaxAccountNumber == 0 {
+			for _, account := range accounts {
+				num, err := strconv.Atoi(account.(map[string]interface{})["account_number"].(string))
+				if err != nil {
+					panic(err)
+				}
+				if num > MaxAccountNumber {
+					MaxAccountNumber = num
+				}
+			}
+		}
+
+		//TODO(JS): This needs to be in the case that the account doesn't exist, instead of just balance as it is at the moment
+		MaxAccountNumber++
+
+		reconciliationAccount := map[string]interface{}{
+			"@type":          "/cosmos.auth.v1beta1.BaseAccount",
+			"account_number": MaxAccountNumber,
+			"address":        address,
+			"pub_key":        nil,
+			"sequence":       "0",
+		}
+
+		accounts = append(accounts, reconciliationAccount)
+		auth["accounts"] = accounts
+
+		balances = append(balances, reconciliationBalance)
+		bank["balances"] = balances
+
+		reconciliationBalanceIdx = len(balances) - 1
+		balanceMap[address] = reconciliationBalanceIdx
+	}
+	return reconciliationBalanceIdx
+}
+
 func ASIGenesisUpgradeWithdrawReconciliationBalances(jsonData map[string]interface{}, networkInfo NetworkConfig, manifest *ASIUpgradeManifest) {
 	if networkInfo.ReconciliationInfo == nil {
 		return
@@ -800,10 +851,7 @@ func ASIGenesisUpgradeWithdrawReconciliationBalances(jsonData map[string]interfa
 	accounts := auth["accounts"].([]interface{})
 	accountSequenceMap := getGenesisAccountSequenceMap(accounts)
 
-	reconciliationBalanceIdx, ok := (*balanceMap)[reconciliationWithdrawAddress]
-	if !ok {
-		panic("no match in genesis for reconciliation withdraw address")
-	}
+	reconciliationBalanceIdx := getBalanceIdx(reconciliationWithdrawAddress, jsonData, *balanceMap, networkInfo)
 
 	manifest.Reconciliation = &ASIUpgradeTransfers{
 		Transfer: []ASIUpgradeTransfer{},
