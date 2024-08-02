@@ -48,6 +48,8 @@ const (
 )
 
 var (
+	cw20ContractInfoKey = []byte("contract_info")
+
 	// Reconciliation balances contract state key
 	reconciliationBalancesKey              = prefixStringWithLength("balances")
 	reconciliationTotalBalanceKey          = []byte("total_balance")
@@ -1109,6 +1111,86 @@ func replaceContractAdminAndLabel(genesisContractStruct map[string]interface{}, 
 	}
 }
 
+func updateContractVersion(jsonData map[string]interface{}, contractAddr *string, newVersion *ContractVersion, manifest *ASIUpgradeManifest) error {
+	if contractAddr == nil {
+		return nil
+	}
+
+	contract := getContractFromAddr(*contractAddr, jsonData)
+
+	var kvp map[string]string
+	var i int
+	var key []byte
+	var origStoreVal []byte
+	var err error
+
+	wasPresent := false
+
+	states := contract["contract_state"].([]map[string]string)
+	for i, kvp = range states {
+		hexKey := kvp["key"]
+		b64Value := kvp["value"]
+
+		key, err = hex.DecodeString(hexKey)
+		if err != nil {
+			return err
+		}
+
+		if bytes.Compare(key, cw20ContractInfoKey) == 0 {
+			origStoreVal, err = base64.StdEncoding.DecodeString(b64Value)
+			if err != nil {
+				return err
+			}
+			wasPresent = true
+			break
+		}
+	}
+
+	var origVersion *ContractVersion
+	if wasPresent {
+		if err != nil {
+			return err
+		}
+
+		var val ContractVersion
+		if err := json.Unmarshal(origStoreVal, val); err != nil {
+			return err
+		}
+
+		origVersion = &val
+	}
+
+	if newVersion != nil {
+		newVersionStoreValue, err := json.Marshal(*newVersion)
+		if err != nil {
+			return err
+		}
+		newVersionStoreValueB64 := base64.StdEncoding.EncodeToString(newVersionStoreValue)
+		if wasPresent {
+			states[i]["value"] = newVersionStoreValueB64
+		} else {
+			item := map[string]string{
+				"key":   hex.EncodeToString(cw20ContractInfoKey),
+				"value": newVersionStoreValueB64,
+			}
+			states = append(states, item)
+		}
+	} else if wasPresent {
+		// Deleting the i-th element from the array
+		states = append(states[:i], states[i+1:]...)
+	}
+
+	manifestVersionUpdate := ContractVersionUpdate{
+		Address: *contractAddr,
+		From:    origVersion,
+		To:      newVersion,
+	}
+
+	manifest.Contracts.VersionUpdated = append(manifest.Contracts.VersionUpdated, manifestVersionUpdate)
+
+	return nil
+}
+
 func deleteContractState(genesisContractStruct map[string]interface{}, manifest *ASIUpgradeManifest) {
 	contractAddress := genesisContractStruct["contract_address"].(string)
 	genesisContractStruct["contract_state"] = []interface{}{}
@@ -1157,7 +1239,7 @@ func getCoinsFromInterfaceSlice(data interface{}) sdk.Coins {
 		coinDenom := coinData["denom"].(string)
 		coinAmount, ok := sdk.NewIntFromString(coinData["amount"].(string))
 		if !ok {
-			panic("ibc withdraw: failed to convert coin amount to int")
+			panic("failed to convert coin amount to int")
 		}
 		balanceCoins = append(balanceCoins, sdk.NewCoin(coinDenom, coinAmount))
 	}

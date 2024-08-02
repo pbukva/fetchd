@@ -81,10 +81,22 @@ type NetworkParams struct {
 	Supply        *ASIUpgradeSupply `json:"supply,omitempty"`
 }
 
+type ContractVersion struct {
+	Contract string `json:"contract"`
+	Version  string `json:"version"`
+}
+
+type ContractVersionUpdate struct {
+	Address string           `json:"address"`
+	From    *ContractVersion `json:"from,omitempty"`
+	To      *ContractVersion `json:"to"`
+}
+
 type Contracts struct {
-	StateCleaned []string              `json:"contracts_state_cleaned,omitempty"`
-	AdminUpdated []ContractValueUpdate `json:"contracts_admin_updated,omitempty"`
-	LabelUpdated []ContractValueUpdate `json:"contracts_label_updated,omitempty"`
+	StateCleaned   []string                `json:"state_cleaned,omitempty"`
+	AdminUpdated   []ContractValueUpdate   `json:"admin_updated,omitempty"`
+	LabelUpdated   []ContractValueUpdate   `json:"label_updated,omitempty"`
+	VersionUpdated []ContractVersionUpdate `json:"version_updated,omitempty"`
 }
 
 type ASIUpgradeManifest struct {
