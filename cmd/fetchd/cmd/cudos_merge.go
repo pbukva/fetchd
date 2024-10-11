@@ -7,6 +7,8 @@ import (
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
 	"github.com/fetchai/fetchd/app"
 	"github.com/spf13/cobra"
+	"github.com/tendermint/tendermint/libs/log"
+	"os"
 )
 
 // Module init related flags
@@ -183,6 +185,12 @@ func VerifyConfigFile(configFilePath string, GenesisFilePath string, ctx client.
 
 	if len(networkInfo.CudosMerge.BackupValidators) == 0 {
 		return fmt.Errorf("list of backup validators is empty")
+	}
+
+	logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
+	err = app.ProcessSourceNetworkGenesis(logger, cudosConfig, genesisData, manifest)
+	if err != nil {
+		return err
 	}
 
 	return nil
